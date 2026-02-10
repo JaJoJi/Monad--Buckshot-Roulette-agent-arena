@@ -1,0 +1,25 @@
+# Node
+**/node_modules/
+**/npm-debug.log*
+**/pnpm-debug.log*
+
+# Build
+**/dist/
+**/build/
+**/artifacts/
+**/cache/
+
+# Env
+**/.env
+**/.env.*
+
+# Logs
+**/*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
