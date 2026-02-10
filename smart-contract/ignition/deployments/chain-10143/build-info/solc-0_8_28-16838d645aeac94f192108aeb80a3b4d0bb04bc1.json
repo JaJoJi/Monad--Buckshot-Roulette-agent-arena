@@ -1,0 +1,39 @@
+{
+  "_format": "hh3-sol-build-info-1",
+  "id": "solc-0_8_28-16838d645aeac94f192108aeb80a3b4d0bb04bc1",
+  "solcVersion": "0.8.28",
+  "solcLongVersion": "0.8.28+commit.7893614a",
+  "userSourceNameMap": {
+    "contracts/ArenaMatchEscrow.sol": "project/contracts/ArenaMatchEscrow.sol"
+  },
+  "input": {
+    "language": "Solidity",
+    "settings": {
+      "evmVersion": "cancun",
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "outputSelection": {
+        "*": {
+          "": [
+            "ast"
+          ],
+          "*": [
+            "abi",
+            "evm.bytecode",
+            "evm.deployedBytecode",
+            "evm.methodIdentifiers",
+            "metadata"
+          ]
+        }
+      },
+      "remappings": []
+    },
+    "sources": {
+      "project/contracts/ArenaMatchEscrow.sol": {
+        "content": "// SPDX-License-Identifier: UNLICENSED\npragma solidity ^0.8.28;\n\ncontract ArenaMatchEscrow {\n    address public owner;\n\n    enum MatchStatus {\n        CREATED,\n        ACTIVE,\n        RESOLVED\n    }\n\n    struct Match {\n        address player1;\n        address player2;\n        uint256 betAmount;\n        bool player1Paid;\n        bool player2Paid;\n        MatchStatus status;\n        address winner;\n    }\n\n    uint256 public matchCount;\n    mapping(uint256 => Match) public matches;\n\n    // ---------------- EVENTS ----------------\n    event MatchCreated(uint256 indexed matchId, address player1, address player2, uint256 betAmount);\n    event PlayerJoined(uint256 indexed matchId, address player);\n    event MatchActivated(uint256 indexed matchId);\n    event MatchResolved(uint256 indexed matchId, address winner, uint256 payout);\n\n    // ---------------- MODIFIERS ----------------\n    modifier onlyOwner() {\n        require(msg.sender == owner, \"Not server\");\n        _;\n    }\n\n    modifier onlyPlayer(uint256 matchId) {\n        Match memory m = matches[matchId];\n        require(\n            msg.sender == m.player1 || msg.sender == m.player2,\n            \"Not a player\"\n        );\n        _;\n    }\n\n    constructor() {\n        owner = msg.sender; // server wallet\n    }\n\n    // ---------------- SERVER ACTION ----------------\n\n    /// @notice Server creates match with 2 players\n    function createMatch(\n        address _player1,\n        address _player2,\n        uint256 _betAmount\n    ) external onlyOwner returns (uint256) {\n        require(_player1 != address(0) && _player2 != address(0), \"Invalid player\");\n        require(_player1 != _player2, \"Same player\");\n        require(_betAmount > 0, \"Bet must be > 0\");\n\n        matchCount++;\n\n        matches[matchCount] = Match({\n            player1: _player1,\n            player2: _player2,\n            betAmount: _betAmount,\n            player1Paid: false,\n            player2Paid: false,\n            status: MatchStatus.CREATED,\n            winner: address(0)\n        });\n\n        emit MatchCreated(matchCount, _player1, _player2, _betAmount);\n        return matchCount;\n    }\n\n    // ---------------- PLAYER ACTION ----------------\n\n    /// @notice Player sends escrow to join the match\n    function joinMatch(uint256 matchId) external payable onlyPlayer(matchId) {\n        Match storage m = matches[matchId];\n\n        require(m.status == MatchStatus.CREATED, \"Match not joinable\");\n        require(msg.value == m.betAmount, \"Incorrect bet amount\");\n\n        if (msg.sender == m.player1) {\n            require(!m.player1Paid, \"Player1 already paid\");\n            m.player1Paid = true;\n        } else {\n            require(!m.player2Paid, \"Player2 already paid\");\n            m.player2Paid = true;\n        }\n\n        emit PlayerJoined(matchId, msg.sender);\n\n        // Both players paid → match becomes active\n        if (m.player1Paid && m.player2Paid) {\n            m.status = MatchStatus.ACTIVE;\n            emit MatchActivated(matchId);\n        }\n    }\n\n    // ---------------- SERVER RESOLVE ----------------\n\n    /// @notice Server decides winner and releases escrow\n    function resolveMatch(uint256 matchId, address _winner) external onlyOwner {\n        Match storage m = matches[matchId];\n\n        require(m.status == MatchStatus.ACTIVE, \"Match not active\");\n        require(\n            _winner == m.player1 || _winner == m.player2,\n            \"Winner must be a player\"\n        );\n\n        m.status = MatchStatus.RESOLVED;\n        m.winner = _winner;\n\n        uint256 payout = m.betAmount * 2;\n\n        (bool success, ) = _winner.call{value: payout}(\"\");\n        require(success, \"Payout failed\");\n\n        emit MatchResolved(matchId, _winner, payout);\n    }\n\n    // ---------------- VIEW ----------------\n\n    function getMatch(uint256 matchId)\n        external\n        view\n        returns (\n            address player1,\n            address player2,\n            uint256 betAmount,\n            bool player1Paid,\n            bool player2Paid,\n            MatchStatus status,\n            address winner\n        )\n    {\n        Match memory m = matches[matchId];\n        return (\n            m.player1,\n            m.player2,\n            m.betAmount,\n            m.player1Paid,\n            m.player2Paid,\n            m.status,\n            m.winner\n        );\n    }\n}\n"
+      }
+    }
+  }
+}
