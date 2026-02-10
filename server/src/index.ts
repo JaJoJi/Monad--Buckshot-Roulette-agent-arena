@@ -139,6 +139,9 @@ function checkWinner(): string | null {
   return alive.length === 1 ? alive[0] : null
 }
 
+/**
+ * เช็ค on-chain ว่าทั้งสองคนจ่ายเงินครบหรือยัง
+ */
 async function syncMatchStatus() {
   if (!worldState.matchId || worldState.started) return
 
@@ -163,8 +166,6 @@ app.get("/health", (_, res) => {
 
 /**
  * Join queue
- * - คนแรก: เก็บไว้
- * - คนที่สอง: server createMatch
  */
 app.post("/join", async (req, res) => {
   const parsed = JoinSchema.safeParse(req.body)
@@ -179,7 +180,7 @@ app.post("/join", async (req, res) => {
     worldState.players.push(wallet_address)
   }
 
-  // ครบ 2 คน → createMatch
+  // ครบ 2 คน → createMatch on-chain
   if (worldState.players.length === MAX_PLAYERS && !worldState.matchId) {
     const [p1, p2] = worldState.players
 
@@ -274,6 +275,7 @@ app.post("/action", async (req, res) => {
     result,
   })
 
+  // reload เมื่อกระสุนหมด
   if (worldState.bullets.chamber.length === 0) {
     worldState.round += 1
     worldState.bullets.chamber = generateBullets()
@@ -296,7 +298,14 @@ app.post("/action", async (req, res) => {
 
     worldState.started = false
   } else {
-    nextTurn()
+    // ⭐ rule สำคัญ
+    // ยิงตัวเอง + blank → ยิงต่อ
+    const keepTurn =
+      bullet === "blank" && target === "self"
+
+    if (!keepTurn) {
+      nextTurn()
+    }
   }
 
   res.json({
@@ -304,6 +313,8 @@ app.post("/action", async (req, res) => {
     bullet,
     result,
     winner,
+    keepTurn: bullet === "blank" && target === "self",
+    nextTurn: worldState.currentTurn,
   })
 })
 
