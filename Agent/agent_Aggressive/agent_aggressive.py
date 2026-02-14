@@ -15,7 +15,7 @@ MODEL=os.getenv("GEMINI_MODEL")
 RPC=os.getenv("RPC_URL")
 PRIVATE=os.getenv("PRIVATE_KEY_AGENT2")
 ARENA=os.getenv("ARENA_ESCROW_ADDRESS")
-BET=float(os.getenv("BET_AMOUNT","0.01"))
+BET=float(os.getenv("BET_AMOUNT"))
 
 # ================= WEB3 =================
 w3=Web3(Web3.HTTPProvider(RPC))
@@ -44,16 +44,65 @@ INITIAL_BLANK=3
 MEM="memory_ag2.json"
 GAME_MEM="game_memory_ag2.json"
 LEARN="learning_ag2.json"
+STYLE = "aggressive"
 MAX_GAME_MEM=7
+
+# ================= STYLE SYSTEM =================
+def normalize_weights(learn):
+    total = learn["llm_weight"] + learn["ev_weight"]
+    if total <= 0:
+        learn["llm_weight"] = 0.5
+        learn["ev_weight"] = 0.5
+    else:
+        learn["llm_weight"] /= total
+        learn["ev_weight"] /= total
+    return learn
+
+def apply_style(learn, style="aggressive"):
+    """
+    Apply personality bias at game start.
+    Does NOT overwrite learning, just nudges it.
+    """
+
+    style = (style or "aggressive").lower()
+
+    if style == "balanced":
+        # default — no change
+        pass
+
+    elif style == "aggressive":
+        learn["llm_weight"] += 0.15
+        learn["ev_weight"] -= 0.05
+        learn["explore"] += 0.05
+
+    elif style == "defensive":
+        learn["llm_weight"] -= 0.05
+        learn["ev_weight"] += 0.15
+        learn["explore"] -= 0.03
+
+    elif style == "Gambler":
+        learn["explore"] += 0.20
+
+    elif style == "calculated":
+        learn["ev_weight"] += 0.20
+        learn["llm_weight"] -= 0.05
+        learn["explore"] -= 0.05
+
+    elif style == "Ego Agent":
+        learn["ev_weight"] += 0.20
+        learn["llm_weight"] += 0.15
+        learn["explore"] += 0.10
+
+    # clamp explore
+    learn["explore"] = max(0.01, min(0.5, learn["explore"]))
+
+    # normalize llm/ev
+    learn = normalize_weights(learn)
+
+    return learn
 
 # ================= PAY MATCH - IMPROVED =================
 def pay_match(match_id):
-    """
-    ปรับปรุงฟังก์ชันจ่ายเงินเข้า escrow contract
-    - ตรวจสอบยอดเงินในกระเป๋า
-    - ประมาณค่า gas แบบอัตโนมัติ
-    - retry กรณีล้มเหลว
-    """
     try:
         # ตรวจสอบสถานะ match ก่อนจ่าย
         match_info = contract.functions.getMatch(match_id).call()
@@ -170,11 +219,16 @@ def load_game_mem():
 def save_game_mem(m): json.dump(m,open(GAME_MEM,"w"),indent=2)
 
 def push_game_result(game_data):
-    m=load_game_mem()
-    m.append(game_data)
-    if len(m)>MAX_GAME_MEM: m=m[-MAX_GAME_MEM:]
-    save_game_mem(m)
+    m = load_game_mem()
 
+    # ถ้าเต็มแล้ว ลบเกมเก่าสุด (ตัวแรก)
+    if len(m) >= MAX_GAME_MEM:
+        m.pop(0)   # ⭐ ลบ index 0 = เก่าสุด
+
+    # เพิ่มเกมใหม่ท้าย list
+    m.append(game_data)
+
+    save_game_mem(m)
 def load_mem():
     if not os.path.exists(MEM): return []
     return json.load(open(MEM))
@@ -219,14 +273,21 @@ def build_belief():
 
 # ================= PROB =================
 def compute_prob(state):
-    hist=state.get("actionHistory",[])
-    r=sum(1 for h in hist if h.get("bullet")=="real")
-    b=sum(1 for h in hist if h.get("bullet")=="blank")
-    real=max(INITIAL_REAL-r,0)
-    blank=max(INITIAL_BLANK-b,0)
-    t=real+blank
-    if t==0: return 0.5,0.5,real,blank
-    return real/t,blank/t,real,blank
+
+    bullets = state.get("bullets", {})
+
+    real = bullets.get("real")
+    blank = bullets.get("blank")
+
+    if real is None or blank is None:
+        return 0.5, 0.5, 0, 0
+
+    total = real + blank
+    if total == 0:
+        return 0.5, 0.5, real, blank
+
+    return real/total, blank/total, real, blank
+
 
 def compute_ev(p_real,p_blank,real,blank):
     total=real+blank
@@ -282,11 +343,11 @@ STRATEGIC CONSIDERATIONS:
 DECISION RULES:
 - If blank probability > 70% AND you need turns → shoot self
 - If real probability > 60% AND opponent HP > yours → shoot other
-- If HP advantage ≥ 2 → more aggressive (shoot self on blanks)
+- If HP advantage ≥ 2 → more offensive (shoot self on blanks)
 - If HP disadvantage → conservative (prioritize opponent shots)
 
 Return ONLY valid JSON (no markdown):
-{{"decision": "self" or "other", "confidence": 0.0-1.0, "reason": "detailed explanation", "strategy_type": "aggressive/conservative/balanced/calculated"}}
+{{"decision": "self" or "other", "confidence": 0.0-1.0, "reason": "detailed explanation", "strategy_type": "offensive/conservative"}}
 """
     
     try:
@@ -338,7 +399,6 @@ def shoot(action, ctx, llm):
     r = requests.post(f"{SERVER}/action", json=payload)
     data = r.json()
     
-    # แสดงผลการยิง
     bullet = data.get("bullet", "unknown")
     result = data.get("result", "")
     
@@ -347,7 +407,6 @@ def shoot(action, ctx, llm):
     else:
         print(f"   🔘 BLANK bullet! {result}")
     
-    # บันทึก turn memory
     turn_data = {
         "action": action,
         "target": action,
@@ -364,12 +423,46 @@ def shoot(action, ctx, llm):
     }
     push_mem(turn_data)
 
+    # ⭐ FIX: return winner from server
     if data.get("winner"):
         winner = data["winner"]
         print(f"\n🏁 Game Over! Winner: {winner}")
-        return True  # ส่งสัญญาณว่าเกมจบ
-    
-    return False  # เกมยังไม่จบ
+        return True, winner
+
+    return False, None
+
+def wait_for_state_change(prev_state, timeout=10):
+    """
+    รอจนกว่า state จะเปลี่ยนจริง (turn / history / bullets)
+    ป้องกันอ่าน state cache เดิม
+    """
+    start = time.time()
+
+    prev_turn = prev_state.get("currentTurn")
+    prev_hist_len = len(prev_state.get("actionHistory", []))
+
+    while time.time() - start < timeout:
+        try:
+            s = requests.get(f"{SERVER}/world/state").json()
+
+            if not s:
+                time.sleep(0.3)
+                continue
+
+            # ✔ ถ้า turn เปลี่ยน
+            if s.get("currentTurn") != prev_turn:
+                return s
+
+            # ✔ หรือมี action เพิ่ม
+            if len(s.get("actionHistory", [])) > prev_hist_len:
+                return s
+
+        except:
+            pass
+
+        time.sleep(0.3)
+
+    return prev_state  # fallback
 
 # ================= LOOP =================
 def play_single_game(match_id):
@@ -389,9 +482,19 @@ def play_single_game(match_id):
     game_start_time = time.time()
     total_turns = 0
     
+    last_state = None
+
     while True:
         try:
-            s = requests.get(f"{SERVER}/world/state").json()
+            raw = requests.get(f"{SERVER}/world/state").json()
+
+            if last_state is not None:
+                s = wait_for_state_change(last_state)
+            else:
+                s = raw
+
+            last_state = s
+
             
             if not s or not s.get("started"):
                 time.sleep(1)
@@ -430,18 +533,19 @@ def play_single_game(match_id):
                 print(f"   Reason: {llm.get('reason', 'N/A')}")
                 print(f"   Strategy: {llm.get('strategy_type', 'N/A')}")
                 
-                game_over = shoot(action, ctx, llm)
-                
+                game_over, winner = shoot(action, ctx, llm)
+                last_state = wait_for_state_change(last_state)
                 if game_over:
-                    # เกมจบแล้ว - บันทึกผล
-                    won = ctx['opp_hp'] <= 0
+                    # ⭐ FIX: เช็คจาก winner จริง ไม่ใช้ ctx
+                    won = (winner.lower() == MY_ID.lower())
+
                     game_duration = time.time() - game_start_time
-                    
-                    # วิเคราะห์ opponent aggression
                     turn_history = load_mem()
-                    opp_aggression = sum(1 for t in turn_history if t.get('target') == 'other') / max(len(turn_history), 1)
-                    
-                    # บันทึก game result
+
+                    opp_aggression = sum(
+                        1 for t in turn_history if t.get('target') == 'other'
+                    ) / max(len(turn_history), 1)
+
                     game_data = {
                         "won": won,
                         "final_my_hp": ctx['my_hp'] if won else 0,
@@ -450,18 +554,21 @@ def play_single_game(match_id):
                         "duration_seconds": round(game_duration, 2),
                         "opp_aggression": round(opp_aggression, 3),
                         "winning_pattern": llm.get('strategy_type', 'unknown'),
-                        "avg_confidence": round(sum(t.get('llm_confidence', 0) for t in turn_history) / max(len(turn_history), 1), 3)
+                        "avg_confidence": round(
+                            sum(t.get('llm_confidence', 0) for t in turn_history)
+                            / max(len(turn_history), 1),
+                            3
+                        )
                     }
+
                     push_game_result(game_data)
-                    
-                    # อัพเดท learning parameters
                     update_learning(won, turn_history)
-                    
+
                     print(f"\n📊 Game Stats:")
                     print(f"   Turns played: {total_turns}")
                     print(f"   Duration: {game_duration:.1f}s")
                     print(f"   Opponent aggression: {opp_aggression:.2%}")
-                    
+
                     return won
             
             # ⭐ ตรวจสอบว่าเกมจบหรือยัง (กรณีที่ไม่ใช่เทิร์นเรา)
@@ -574,6 +681,11 @@ def run_bot():
     
     # โหลด learning state
     learn = load_learn()
+# ⭐ APPLY STYLE ตรงนี้
+    learn = apply_style(learn, STYLE)
+    save_learn(learn)
+
+    print(f"\n🎭 Agent style: {STYLE}")
     print(f"\n🧠 Current Learning State:")
     print(f"   LLM weight: {learn['llm_weight']:.2f}")
     print(f"   EV weight: {learn['ev_weight']:.2f}")
