@@ -124,6 +124,9 @@ function startGame() {
   }
 
   console.log("🎮 Game started")
+  console.log(`   Players: ${worldState.players.join(" vs ")}`)
+  console.log(`   First turn: ${worldState.currentTurn}`)
+  console.log(`   Bullets: ${worldState.bullets.chamber.length} (${worldState.bullets.chamber.filter(b => b === 'real').length} real, ${worldState.bullets.chamber.filter(b => b === 'blank').length} blank)`)
 }
 
 function nextTurn() {
@@ -143,13 +146,74 @@ function checkWinner(): string | null {
  * เช็ค on-chain ว่าทั้งสองคนจ่ายเงินครบหรือยัง
  */
 async function syncMatchStatus() {
-  if (!worldState.matchId || worldState.started) return
+  if (!worldState.matchId) return
+  if (worldState.started) return // เกมเริ่มแล้ว ไม่ต้องเช็คอีก
 
-  const m = await arena.getMatch(worldState.matchId)
+  try {
+    const m = await arena.getMatch(worldState.matchId)
+    
+    const player1 = m[0]
+    const player2 = m[1]
+    const player1Paid = m[3]
+    const player2Paid = m[4]
+    const status = m[5] // 0=CREATED, 1=ACTIVE, 2=RESOLVED
+    
+    console.log(`🔍 Match #${worldState.matchId} status check:`)
+    console.log(`   Player1: ${player1} (paid: ${player1Paid})`)
+    console.log(`   Player2: ${player2} (paid: ${player2Paid})`)
+    console.log(`   Status: ${['CREATED', 'ACTIVE', 'RESOLVED'][status]}`)
 
-  // MatchStatus.ACTIVE = 1
-  if (m[5] === 1) {
-    startGame()
+    // ⭐ เงื่อนไขเริ่มเกม: status = ACTIVE (1) หรือทั้งสองคนจ่ายครบ
+    if ((status === 1 || (player1Paid && player2Paid)) && !worldState.started) {
+      console.log("✅ Both players paid! Starting game NOW...")
+      startGame()
+      
+      // หยุด polling ทันที
+      if (pollingInterval) {
+        clearInterval(pollingInterval)
+        pollingInterval = null
+        console.log("⏹️ Stopped polling (game started)")
+      }
+    }
+  } catch (err) {
+    console.error("❌ Error checking match status:", err)
+  }
+}
+
+/**
+ * เช็คสถานะ match อัตโนมัติทุก 2 วินาที
+ */
+let pollingInterval: NodeJS.Timeout | null = null
+
+function startMatchPolling() {
+  if (pollingInterval) return // ป้องกัน duplicate
+
+  pollingInterval = setInterval(async () => {
+    // หยุดทันทีถ้าเกมเริ่มแล้ว
+    if (worldState.started) {
+      clearInterval(pollingInterval!)
+      pollingInterval = null
+      console.log("⏹️ Stopped polling - game is running")
+      return
+    }
+    
+    if (!worldState.matchId) return
+
+    try {
+      await syncMatchStatus()
+    } catch (err) {
+      console.error("Polling error:", err)
+    }
+  }, 2000) // เช็คทุก 2 วินาที
+
+  console.log("▶️ Started match polling (checking every 2s)")
+}
+
+function stopMatchPolling() {
+  if (pollingInterval) {
+    clearInterval(pollingInterval)
+    pollingInterval = null
+    console.log("⏹️ Stopped match polling")
   }
 }
 
@@ -165,6 +229,41 @@ app.get("/health", (_, res) => {
 })
 
 /**
+ * ค้นหา match ที่ยังไม่เสร็จสำหรับ players เหล่านี้
+ */
+async function findExistingMatch(player1: string, player2: string): Promise<number | null> {
+  try {
+    const matchCount = await arena.matchCount()
+    console.log(`🔍 Checking ${matchCount} existing matches...`)
+    
+    // เช็คจากล่างขึ้นบน (match ล่าสุดก่อน)
+    for (let i = Number(matchCount) - 1; i >= 0; i--) {
+      const m = await arena.getMatch(i)
+      
+      const matchPlayer1 = m[0].toLowerCase()
+      const matchPlayer2 = m[1].toLowerCase()
+      const status = m[5] // 0=CREATED, 1=ACTIVE, 2=RESOLVED
+      
+      // ตรวจสอบว่า player ทั้งสองตรงกัน และ match ยังไม่จบ
+      const playersMatch = 
+        (matchPlayer1 === player1.toLowerCase() && matchPlayer2 === player2.toLowerCase()) ||
+        (matchPlayer1 === player2.toLowerCase() && matchPlayer2 === player1.toLowerCase())
+      
+      if (playersMatch && status !== 2) { // ไม่ใช่ RESOLVED
+        console.log(`✅ Found existing match #${i} for these players`)
+        return i
+      }
+    }
+    
+    console.log("❌ No existing match found")
+    return null
+  } catch (err) {
+    console.error("Error finding existing match:", err)
+    return null
+  }
+}
+
+/**
  * Join queue
  */
 app.post("/join", async (req, res) => {
@@ -178,30 +277,50 @@ app.post("/join", async (req, res) => {
 
   if (!worldState.players.includes(wallet_address)) {
     worldState.players.push(wallet_address)
+    console.log(`👤 Player joined: ${wallet_address} (${worldState.players.length}/${MAX_PLAYERS})`)
   }
 
-  // ครบ 2 คน → createMatch on-chain
+  // ครบ 2 คน → ตรวจสอบ existing match ก่อน
   if (worldState.players.length === MAX_PLAYERS && !worldState.matchId) {
     const [p1, p2] = worldState.players
 
-    try {
-      const tx = await arena.createMatch(
-        p1,
-        p2,
-        BET_AMOUNT
-      )
-      const receipt = await tx.wait()
+    // ⭐ ตรวจสอบว่ามี match อยู่แล้วหรือไม่
+    const existingMatchId = await findExistingMatch(p1, p2)
+    
+    if (existingMatchId !== null) {
+      worldState.matchId = existingMatchId
+      console.log(`♻️ Using existing match #${existingMatchId}`)
+      
+      // เริ่ม polling เพื่อรอ payment
+      startMatchPolling()
+      
+    } else {
+      // สร้าง match ใหม่
+      try {
+        console.log("📝 Creating new match on-chain...")
+        const tx = await arena.createMatch(
+          p1,
+          p2,
+          BET_AMOUNT
+        )
+        const receipt = await tx.wait()
 
-      const event = receipt!.logs
-        .map((log: { topics: ReadonlyArray<string>; data: string }) => arena.interface.parseLog(log))
-        .find((e: { name: string }) => e?.name === "MatchCreated")
+        const event = receipt!.logs
+          .map((log: { topics: ReadonlyArray<string>; data: string }) => arena.interface.parseLog(log))
+          .find((e: { name: string }) => e?.name === "MatchCreated")
 
-      worldState.matchId = Number(event!.args.matchId)
+        worldState.matchId = Number(event!.args.matchId)
 
-      console.log("🧾 Match created:", worldState.matchId)
-    } catch (err) {
-      console.error(err)
-      return res.status(500).json({ error: "createMatch failed" })
+        console.log(`🧾 Match created: #${worldState.matchId}`)
+        console.log(`   Bet amount: ${ethers.formatEther(BET_AMOUNT)} ETH`)
+        
+        // เริ่ม polling เพื่อรอ payment
+        startMatchPolling()
+        
+      } catch (err) {
+        console.error("❌ createMatch failed:", err)
+        return res.status(500).json({ error: "createMatch failed" })
+      }
     }
   }
 
@@ -264,6 +383,10 @@ app.post("/action", async (req, res) => {
 
     worldState.hp[victim] -= 1
     result = `${victim} lost 1 hp`
+    
+    console.log(`💥 ${bullet.toUpperCase()} bullet! ${result}`)
+  } else {
+    console.log(`🔘 ${bullet.toUpperCase()} bullet! Click...`)
   }
 
   worldState.actionHistory.push({
@@ -279,24 +402,56 @@ app.post("/action", async (req, res) => {
   if (worldState.bullets.chamber.length === 0) {
     worldState.round += 1
     worldState.bullets.chamber = generateBullets()
+    console.log(`🔄 Round ${worldState.round} - Reloaded bullets`)
   }
 
   const winner = checkWinner()
 
   if (winner && worldState.matchId) {
     try {
+      console.log(`🏆 Winner: ${winner}! Resolving match on-chain...`)
       const tx = await arena.resolveMatch(
         worldState.matchId,
         winner
       )
       await tx.wait()
 
-      console.log("🏆 Match resolved:", winner)
+      console.log("✅ Match resolved on-chain")
     } catch (err) {
-      console.error("resolveMatch failed", err)
+      console.error("❌ resolveMatch failed:", err)
     }
 
-    worldState.started = false
+    // แสดงสถิติสรุป
+    console.log("\n" + "=".repeat(60))
+    console.log("🏁 GAME COMPLETED")
+    console.log("=".repeat(60))
+    console.log(`🏆 Winner: ${winner}`)
+    console.log(`📊 Game Stats:`)
+    console.log(`   Total rounds: ${worldState.round}`)
+    console.log(`   Total actions: ${worldState.actionHistory.length}`)
+    console.log(`   Final HP: ${worldState.hp[worldState.players[0]]} vs ${worldState.hp[worldState.players[1]]}`)
+    console.log("=".repeat(60))
+    
+    stopMatchPolling()
+    
+    // หยุด server หลังเกมจบ
+    console.log("\n👋 Server shutting down after game completion...")
+    
+    // รอ 3 วินาทีให้ agent ได้รับข้อมูล
+    setTimeout(() => {
+      console.log("✅ Server stopped successfully")
+      process.exit(0)
+    }, 3000)
+    
+    return res.json({
+      ok: true,
+      bullet,
+      result,
+      winner,
+      keepTurn: false,
+      nextTurn: null,
+      gameComplete: true
+    })
   } else {
     // ⭐ rule สำคัญ
     // ยิงตัวเอง + blank → ยิงต่อ
@@ -305,6 +460,12 @@ app.post("/action", async (req, res) => {
 
     if (!keepTurn) {
       nextTurn()
+    }
+    
+    if (keepTurn) {
+      console.log(`🎯 ${wallet_address} gets another turn!`)
+    } else {
+      console.log(`🔄 Next turn: ${worldState.currentTurn}`)
     }
   }
 
@@ -338,6 +499,19 @@ app.get("/match/onchain", async (_, res) => {
 })
 
 /**
+ * Force sync (for debugging)
+ */
+app.post("/admin/sync", async (_, res) => {
+  console.log("🔧 Manual sync triggered")
+  await syncMatchStatus()
+  res.json({ 
+    ok: true, 
+    started: worldState.started,
+    matchId: worldState.matchId
+  })
+})
+
+/**
  * --------------------
  * Start server
  * --------------------
@@ -345,4 +519,6 @@ app.get("/match/onchain", async (_, res) => {
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
   console.log(`🏟️ Arena server running on port ${PORT}`)
+  console.log(`   RPC: ${process.env.RPC_URL}`)
+  console.log(`   Arena: ${process.env.ARENA_ESCROW_ADDRESS}`)
 })

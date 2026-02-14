@@ -1,5 +1,6 @@
 google-generativeai python-dotenv
 requests
+web3
 
 """
 pip install -r requirements.txt

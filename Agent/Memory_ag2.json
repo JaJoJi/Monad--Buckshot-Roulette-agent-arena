@@ -1,0 +1,44 @@
+[
+  {
+    "action": "self",
+    "target": "self",
+    "bullet": "blank",
+    "result": "click",
+    "my_hp_before": 2,
+    "opp_hp_before": 3,
+    "p_real": 0.4,
+    "ev_self": -0.10000000000000003,
+    "ev_other": 0.4,
+    "llm_decision": "other",
+    "llm_confidence": 0.9,
+    "strategy_type": "conservative"
+  },
+  {
+    "action": "other",
+    "target": "other",
+    "bullet": "real",
+    "result": "0x6B2C8015B9432bafB5410a1BD426d71848719186 lost 1 hp",
+    "my_hp_before": 2,
+    "opp_hp_before": 3,
+    "p_real": 0.5,
+    "ev_self": -0.16666666666666669,
+    "ev_other": 0.5,
+    "llm_decision": "other",
+    "llm_confidence": 0.9,
+    "strategy_type": "conservative"
+  },
+  {
+    "action": "other",
+    "target": "other",
+    "bullet": "real",
+    "result": "0x6B2C8015B9432bafB5410a1BD426d71848719186 lost 1 hp",
+    "my_hp_before": 1,
+    "opp_hp_before": 2,
+    "p_real": 0.0,
+    "ev_self": 0.5,
+    "ev_other": 0.0,
+    "llm_decision": "self",
+    "llm_confidence": 0.95,
+    "strategy_type": "calculated"
+  }
+]
