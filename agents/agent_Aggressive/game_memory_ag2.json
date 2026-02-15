@@ -18,5 +18,15 @@
     "opp_aggression": 1.0,
     "winning_pattern": "loss",
     "avg_confidence": 0.912
+  },
+  {
+    "won": true,
+    "final_my_hp": 2,
+    "final_opp_hp": 0,
+    "total_turns": 15,
+    "duration_seconds": 242.45,
+    "opp_aggression": 0.667,
+    "winning_pattern": "offensive",
+    "avg_confidence": 0.913
   }
 ]

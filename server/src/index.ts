@@ -2,11 +2,12 @@ import express from "express"
 import dotenv from "dotenv"
 import { z } from "zod"
 import { ethers } from "ethers"
-
+import { spawn } from "child_process"
+import path from "path"
+import fs from "fs"
 import ArenaMatchEscrowABI from "./ArenaMatchEscrow.json"
 
 dotenv.config()
-
 /**
  * --------------------
  * App
@@ -14,7 +15,33 @@ dotenv.config()
  */
 const app = express()
 app.use(express.json())
+app.use(express.urlencoded({ extended: true })) 
+app.set("view engine", "ejs")
+app.set("views", path.join(process.cwd(), "src", "views"))
+const agentMap: Record<string, { folder: string; file: string }> = {
+  Aggressive: {
+    folder: "agent_Aggressive",
+    file: "agent_aggressive.py",
+  },
+  Calculated: {
+    folder: "agent_Calculated",
+    file: "agent_calculated.py",
+  },
+  Defensive: {
+    folder: "agent_Defensive",
+    file: "agent_defensive.py",
+  },
+  Ego: {
+    folder: "agent_Ego_Agent",
+    file: "agent_ego_agent.py",
+  },
+  Gambler: {
+    folder: "agent_Gambler",
+    file: "agent_Gambler.py", // ตัวนี้ G ใหญ่
+  },
+}
 
+let creatingMatch = false
 /**
  * --------------------
  * Blockchain setup
@@ -239,7 +266,11 @@ function stopMatchPolling() {
  * Routes
  * --------------------
  */
-
+app.get("/", (_, res) => {
+  res.render("index", {
+    opponents: Object.keys(agentMap)
+  })
+})
 // Health
 app.get("/health", (_, res) => {
   res.json({ ok: true })
@@ -285,59 +316,84 @@ async function findExistingMatch(player1: string, player2: string): Promise<numb
  */
 app.post("/join", async (req, res) => {
   const parsed = JoinSchema.safeParse(req.body)
-  if (!parsed.success) return res.status(400).json(parsed.error)
+  if (!parsed.success) {
+    return res.status(400).json(parsed.error)
+  }
 
   const { wallet_address } = parsed.data
 
-  if (worldState.started)
+  if (worldState.started) {
     return res.status(403).json({ error: "game already started" })
-
-  if (!worldState.players.includes(wallet_address)) {
-    worldState.players.push(wallet_address)
-    console.log(`👤 Player joined: ${wallet_address} (${worldState.players.length}/${MAX_PLAYERS})`)
   }
 
-  // ครบ 2 คน → ตรวจสอบ existing match ก่อน
-  if (worldState.players.length === MAX_PLAYERS && worldState.matchId === null) {
-    const [p1, p2] = worldState.players
+  // เพิ่ม player ถ้ายังไม่มี
+  if (!worldState.players.includes(wallet_address)) {
+    worldState.players.push(wallet_address)
+    console.log(
+      `👤 Player joined: ${wallet_address} (${worldState.players.length}/${MAX_PLAYERS})`
+    )
+  }
 
-    // ⭐ ตรวจสอบว่ามี match อยู่แล้วหรือไม่
-    const existingMatchId = await findExistingMatch(p1, p2)
-    
-    if (existingMatchId !== null) {
-      worldState.matchId = existingMatchId
-      console.log(`♻️ Using existing match #${existingMatchId}`)
-      
-      // เริ่ม polling เพื่อรอ payment
-      startMatchPolling()
-      
-    } else {
-      // สร้าง match ใหม่
-      try {
+  // ครบ 2 คนแล้ว และยังไม่มี match
+  if (
+    worldState.players.length === MAX_PLAYERS &&
+    worldState.matchId === null &&
+    !creatingMatch
+  ) {
+    creatingMatch = true // 🔒 LOCK ป้องกันสร้างซ้ำ
+
+    try {
+      const [p1, p2] = worldState.players
+
+      // 🔍 เช็คว่ามี match เดิมอยู่ไหม
+      const existingMatchId = await findExistingMatch(p1, p2)
+
+      if (existingMatchId !== null) {
+        worldState.matchId = existingMatchId
+        console.log(`♻️ Using existing match #${existingMatchId}`)
+        startMatchPolling()
+      } else {
+        // 📝 สร้าง match ใหม่
         console.log("📝 Creating new match on-chain...")
+
         const tx = await arena.createMatch(
           p1,
           p2,
           BET_AMOUNT
         )
+
         const receipt = await tx.wait()
 
         const event = receipt!.logs
-          .map((log: { topics: ReadonlyArray<string>; data: string }) => arena.interface.parseLog(log))
-          .find((e: { name: string }) => e?.name === "MatchCreated")
+          .map((log: any) => {
+            try {
+              return arena.interface.parseLog(log)
+            } catch {
+              return null
+            }
+          })
+          .find((e: any) => e?.name === "MatchCreated")
 
-        worldState.matchId = Number(event!.args.matchId)
+        if (!event) {
+          throw new Error("MatchCreated event not found")
+        }
+
+        worldState.matchId = Number(event.args.matchId)
 
         console.log(`🧾 Match created: #${worldState.matchId}`)
-        console.log(`   Bet amount: ${ethers.formatEther(BET_AMOUNT)} ETH`)
-        
-        // เริ่ม polling เพื่อรอ payment
+        console.log(
+          `   Bet amount: ${ethers.formatEther(BET_AMOUNT)} ETH`
+        )
+
         startMatchPolling()
-        
-      } catch (err) {
-        console.error("❌ createMatch failed:", err)
-        return res.status(500).json({ error: "createMatch failed" })
       }
+    } catch (err) {
+      console.error("❌ Error during match creation:", err)
+      return res.status(500).json({
+        error: "match creation failed",
+      })
+    } finally {
+      creatingMatch = false // 🔓 UNLOCK
     }
   }
 
@@ -348,7 +404,6 @@ app.post("/join", async (req, res) => {
     betAmount: BET_AMOUNT.toString(),
   })
 })
-
 /**
  * World state
  */
@@ -524,6 +579,61 @@ app.post("/admin/sync", async (_, res) => {
   })
 })
 
+app.post("/arena/run", async (req, res) => {
+  try {
+    const { opponent } = req.body
+
+    if (!agentMap[opponent]) {
+      return res.status(400).json({ error: "Invalid opponent" })
+    }
+
+    resetWorld()
+
+    const balancedPath = path.join(
+      process.cwd(),
+      "agents",
+      "agent_Balanced",
+      "agent_balanced.py"
+    )
+
+    const opponentConfig = agentMap[opponent]
+
+    const opponentPath = path.join(
+      process.cwd(),
+      "agents",
+      opponentConfig.folder,
+      opponentConfig.file
+    )
+
+    if (!fs.existsSync(opponentPath)) {
+      return res.status(500).json({ error: "Agent file missing" })
+    }
+
+    // ⭐ รอให้ process จบก่อน
+    await new Promise<void>((resolve) => {
+      const p1 = spawn("python3", [balancedPath])
+      const p2 = spawn("python3", [opponentPath])
+
+      p2.on("close", () => {
+        resolve()
+      })
+    })
+
+    // หลัง match จบ
+    const winner =
+      worldState.players.find(p => worldState.hp[p] > 0) || "Unknown"
+
+    res.render("result", {
+      opponent,
+      winner
+    })
+
+  } catch (err) {
+    console.error(err)
+    res.status(500).send("Server error")
+  }
+})
+
 /**
  * --------------------
  * Start server
@@ -535,3 +645,5 @@ app.listen(PORT, () => {
   console.log(`   RPC: ${process.env.RPC_URL}`)
   console.log(`   Arena: ${process.env.ARENA_ESCROW_ADDRESS}`)
 })
+
+

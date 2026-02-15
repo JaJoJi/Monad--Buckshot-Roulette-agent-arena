@@ -1,0 +1,17 @@
+<html>
+  <body>
+    <h1>AI Arena</h1>
+
+    <form method="POST" action="/arena/run">
+      <p>Player 1: <b>Balanced</b></p>
+
+      <select name="opponent">
+        <% opponents.forEach(o => { %>
+          <option value="<%= o %>"><%= o %></option>
+        <% }) %>
+      </select>
+
+      <button type="submit">Start Match</button>
+    </form>
+  </body>
+</html>
