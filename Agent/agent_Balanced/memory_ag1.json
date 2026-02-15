@@ -1,1 +1,58 @@
-[]
+[
+  {
+    "action": "other",
+    "target": "other",
+    "bullet": "real",
+    "result": "0x232E28B274f13035c32086261D54F06378C8c6C6 lost 1 hp",
+    "my_hp_before": 3,
+    "opp_hp_before": 3,
+    "p_real": 0.5,
+    "ev_self": -0.25,
+    "ev_other": 0.5,
+    "llm_decision": "other",
+    "llm_confidence": 0.75,
+    "strategy_type": "offensive"
+  },
+  {
+    "action": "other",
+    "target": "other",
+    "bullet": "blank",
+    "result": "click",
+    "my_hp_before": 2,
+    "opp_hp_before": 2,
+    "p_real": 0.5,
+    "ev_self": -0.25,
+    "ev_other": 0.5,
+    "llm_decision": "other",
+    "llm_confidence": 0.9,
+    "strategy_type": "offensive"
+  },
+  {
+    "action": "other",
+    "target": "other",
+    "bullet": "real",
+    "result": "0x232E28B274f13035c32086261D54F06378C8c6C6 lost 1 hp",
+    "my_hp_before": 1,
+    "opp_hp_before": 2,
+    "p_real": 0.5,
+    "ev_self": -0.25,
+    "ev_other": 0.5,
+    "llm_decision": "other",
+    "llm_confidence": 0.9,
+    "strategy_type": "conservative"
+  },
+  {
+    "action": "other",
+    "target": "other",
+    "bullet": "real",
+    "result": "0x232E28B274f13035c32086261D54F06378C8c6C6 lost 1 hp",
+    "my_hp_before": 1,
+    "opp_hp_before": 1,
+    "p_real": 0.5,
+    "ev_self": -0.25,
+    "ev_other": 0.5,
+    "llm_decision": "other",
+    "llm_confidence": 0.75,
+    "strategy_type": "offensive"
+  }
+]

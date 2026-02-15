@@ -7,6 +7,7 @@ python -m venv venv
 
 #dowlaod lib py
 pip install -r requirements.txt
+or pip install google-generativeai python-dotenv requests web3
 
 ''' Shell
 #example run agent 

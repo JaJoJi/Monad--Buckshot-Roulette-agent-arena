@@ -114,7 +114,6 @@ function generateBullets(): Bullet[] {
 }
 
 function startGame() {
-  worldState.started = true
   worldState.round = 1
   worldState.currentTurn = worldState.players[0]
   worldState.bullets.chamber = generateBullets()
@@ -146,28 +145,30 @@ function checkWinner(): string | null {
  * เช็ค on-chain ว่าทั้งสองคนจ่ายเงินครบหรือยัง
  */
 async function syncMatchStatus() {
-  if (!worldState.matchId) return
+  if (worldState.matchId === null) return
   if (worldState.started) return // เกมเริ่มแล้ว ไม่ต้องเช็คอีก
 
   try {
     const m = await arena.getMatch(worldState.matchId)
-    
+
     const player1 = m[0]
     const player2 = m[1]
     const player1Paid = m[3]
     const player2Paid = m[4]
-    const status = m[5] // 0=CREATED, 1=ACTIVE, 2=RESOLVED
-    
+    const status = Number(m[5]) // 0=CREATED, 1=ACTIVE, 2=RESOLVED (cast กัน bigint)
+
     console.log(`🔍 Match #${worldState.matchId} status check:`)
     console.log(`   Player1: ${player1} (paid: ${player1Paid})`)
     console.log(`   Player2: ${player2} (paid: ${player2Paid})`)
     console.log(`   Status: ${['CREATED', 'ACTIVE', 'RESOLVED'][status]}`)
 
-    // ⭐ เงื่อนไขเริ่มเกม: status = ACTIVE (1) หรือทั้งสองคนจ่ายครบ
-    if ((status === 1 || (player1Paid && player2Paid)) && !worldState.started) {
-      console.log("✅ Both players paid! Starting game NOW...")
-      startGame()
+    // ✅ เริ่มเกมเฉพาะตอน status === ACTIVE เท่านั้น
+    if (status === 1 && !worldState.started) {
+      console.log("✅ Match is ACTIVE! Starting game NOW...")
       
+      worldState.started = true
+      startGame()
+
       // หยุด polling ทันที
       if (pollingInterval) {
         clearInterval(pollingInterval)
@@ -175,6 +176,7 @@ async function syncMatchStatus() {
         console.log("⏹️ Stopped polling (game started)")
       }
     }
+
   } catch (err) {
     console.error("❌ Error checking match status:", err)
   }
@@ -197,7 +199,7 @@ function startMatchPolling() {
       return
     }
     
-    if (!worldState.matchId) return
+    if (worldState.matchId === null) return
 
     try {
       await syncMatchStatus()
@@ -249,7 +251,7 @@ async function findExistingMatch(player1: string, player2: string): Promise<numb
         (matchPlayer1 === player1.toLowerCase() && matchPlayer2 === player2.toLowerCase()) ||
         (matchPlayer1 === player2.toLowerCase() && matchPlayer2 === player1.toLowerCase())
       
-      if (playersMatch && status !== 2) { // ไม่ใช่ RESOLVED
+      if (playersMatch && status === 0)  { // ไม่ใช่ RESOLVED
         console.log(`✅ Found existing match #${i} for these players`)
         return i
       }
@@ -281,7 +283,7 @@ app.post("/join", async (req, res) => {
   }
 
   // ครบ 2 คน → ตรวจสอบ existing match ก่อน
-  if (worldState.players.length === MAX_PLAYERS && !worldState.matchId) {
+  if (worldState.players.length === MAX_PLAYERS && worldState.matchId === null) {
     const [p1, p2] = worldState.players
 
     // ⭐ ตรวจสอบว่ามี match อยู่แล้วหรือไม่
@@ -407,7 +409,7 @@ app.post("/action", async (req, res) => {
 
   const winner = checkWinner()
 
-  if (winner && worldState.matchId) {
+  if (winner && worldState.matchId !== null) {
     try {
       console.log(`🏆 Winner: ${winner}! Resolving match on-chain...`)
       const tx = await arena.resolveMatch(
@@ -483,7 +485,7 @@ app.post("/action", async (req, res) => {
  * On-chain debug
  */
 app.get("/match/onchain", async (_, res) => {
-  if (!worldState.matchId)
+  if (worldState.matchId === null)
     return res.json({ match: null })
 
   const m = await arena.getMatch(worldState.matchId)

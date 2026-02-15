@@ -1,1 +1,22 @@
-[]
+[
+  {
+    "won": false,
+    "final_my_hp": 0,
+    "final_opp_hp": 1,
+    "total_turns": 4,
+    "duration_seconds": 13.29,
+    "opp_aggression": 1.0,
+    "winning_pattern": "loss",
+    "avg_confidence": 0.912
+  },
+  {
+    "won": false,
+    "final_my_hp": 0,
+    "final_opp_hp": 1,
+    "total_turns": 4,
+    "duration_seconds": 16.6,
+    "opp_aggression": 1.0,
+    "winning_pattern": "loss",
+    "avg_confidence": 0.912
+  }
+]

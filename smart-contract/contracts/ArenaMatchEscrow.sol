@@ -56,13 +56,10 @@ contract ArenaMatchEscrow {
         address _player2,
         uint256 _betAmount
     ) external onlyOwner returns (uint256) {
-        require(_player1 != address(0) && _player2 != address(0), "Invalid player");
-        require(_player1 != _player2, "Same player");
-        require(_betAmount > 0, "Bet must be > 0");
 
-        matchCount++;
+        uint256 newMatchId = matchCount;
 
-        matches[matchCount] = Match({
+        matches[newMatchId] = Match({
             player1: _player1,
             player2: _player2,
             betAmount: _betAmount,
@@ -72,12 +69,47 @@ contract ArenaMatchEscrow {
             winner: address(0)
         });
 
-        emit MatchCreated(matchCount, _player1, _player2, _betAmount);
-        return matchCount;
+        matchCount++;
+
+        emit MatchCreated(newMatchId, _player1, _player2, _betAmount);
+
+        return newMatchId;
     }
 
     // ---------------- PLAYER ACTION ----------------
 
+    function cancelMatch(uint256 matchId) external onlyOwner {
+    require(matchId < matchCount, "Invalid match");
+
+    Match storage m = matches[matchId];
+
+    require(m.status == MatchStatus.CREATED, "Cannot cancel");
+
+    // เก็บข้อมูลก่อนแก้ state
+    address p1 = m.player1;
+    address p2 = m.player2;
+    uint256 bet = m.betAmount;
+
+    bool p1Paid = m.player1Paid;
+    bool p2Paid = m.player2Paid;
+
+    // ---- EFFECTS (เปลี่ยน state ก่อนโอนเงิน) ----
+    m.status = MatchStatus.RESOLVED;
+    m.winner = address(0);
+    m.player1Paid = false;
+    m.player2Paid = false;
+
+    // ---- INTERACTIONS (refund) ----
+    if (p1Paid) {
+        (bool s1, ) = p1.call{value: bet}("");
+        require(s1, "Refund p1 failed");
+    }
+
+    if (p2Paid) {
+        (bool s2, ) = p2.call{value: bet}("");
+        require(s2, "Refund p2 failed");
+    }
+}
     /// @notice Player sends escrow to join the match
     function joinMatch(uint256 matchId) external payable onlyPlayer(matchId) {
         Match storage m = matches[matchId];
