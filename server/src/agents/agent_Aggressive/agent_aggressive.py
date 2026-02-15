@@ -1,12 +1,19 @@
 import requests,time,random,sys,os,json,re
 from dotenv import load_dotenv
 from web3 import Web3
+import sys
+import io
 
+# Force UTF-8 output on Windows
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="ignore")
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="ignore")
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory,HarmBlockThreshold
-
+import functools
+print = functools.partial(print, flush=True)
 # ================= ENV =================
 load_dotenv()
+
 
 SERVER=os.getenv("SERVER_URL")
 API=os.getenv("GEMINI_API_KEY")
@@ -26,9 +33,22 @@ MY_ID=acct.address
 
 ARENA=w3.to_checksum_address(ARENA)
 
-# ใช้ ABI จาก foundry build
-with open("ArenaMatchEscrow.json") as f:
-    abi=json.load(f)["abi"]
+# ================= LOAD ABI (FIXED PATH) =================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+abi_path = os.path.join(
+    BASE_DIR,
+    "..",
+    "..",
+    "ArenaMatchEscrow.json"
+)
+
+abi_path = os.path.normpath(abi_path)
+
+print("Loading ABI from:", abi_path)
+
+with open(abi_path) as f:
+    abi = json.load(f)["abi"]
 
 contract=w3.eth.contract(address=ARENA,abi=abi)
 
@@ -44,7 +64,7 @@ INITIAL_BLANK=3
 MEM="memory_ag2.json"
 GAME_MEM="game_memory_ag2.json"
 LEARN="learning_ag2.json"
-STYLE = "calculated"
+STYLE = "aggressive"
 MAX_GAME_MEM=7
 
 # ================= STYLE SYSTEM =================
@@ -58,13 +78,13 @@ def normalize_weights(learn):
         learn["ev_weight"] /= total
     return learn
 
-def apply_style(learn, style="calculated"):
+def apply_style(learn, style="aggressive"):
     """
     Apply personality bias at game start.
     Does NOT overwrite learning, just nudges it.
     """
 
-    style = (style or "calculated").lower()
+    style = (style or "aggressive").lower()
 
     if style == "balanced":
         # default — no change
@@ -674,7 +694,7 @@ def run_bot():
     """
     Main bot loop - เล่น 1 เกมแล้วหยุด
     """
-    print("🤖 Starting Advanced AI Bot...")
+    print("Starting Advanced AI Bot...")
     print(f"   Wallet: {MY_ID}")
     print(f"   Arena: {ARENA}")
     print(f"   Bet: {BET} ETH per game")
@@ -685,8 +705,8 @@ def run_bot():
     learn = apply_style(learn, STYLE)
     save_learn(learn)
 
-    print(f"\n🎭 Agent style: {STYLE}")
-    print(f"\n🧠 Current Learning State:")
+    print(f"\nAgent style: {STYLE}")
+    print(f"\nCurrent Learning State:")
     print(f"   LLM weight: {learn['llm_weight']:.2f}")
     print(f"   EV weight: {learn['ev_weight']:.2f}")
     print(f"   Exploration: {learn['explore']:.2%}")

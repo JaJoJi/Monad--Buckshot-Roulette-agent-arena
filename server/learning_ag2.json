@@ -1,5 +1,5 @@
 {
   "llm_weight": 0.9,
   "ev_weight": 0.1,
-  "explore": 0.29
+  "explore": 0.2
 }

@@ -24,6 +24,7 @@ Thumbs.db
 .vscode/
 .idea/
 agents/venv
+server/src/agents/venv
 
 # Agent
 /Agent/test.py

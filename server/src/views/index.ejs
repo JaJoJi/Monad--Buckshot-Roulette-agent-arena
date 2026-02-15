@@ -2,10 +2,12 @@
   <body>
     <h1>AI Arena</h1>
 
-    <form method="POST" action="/arena/run">
+    <h3 id="status">Waiting...</h3>
+
+    <form id="matchForm">
       <p>Player 1: <b>Balanced</b></p>
 
-      <select name="opponent">
+      <select name="opponent" id="opponentSelect">
         <% opponents.forEach(o => { %>
           <option value="<%= o %>"><%= o %></option>
         <% }) %>
@@ -13,5 +15,43 @@
 
       <button type="submit">Start Match</button>
     </form>
+
+    <h2>Match Logs</h2>
+    <pre id="logBox"
+      style="height:400px;overflow:auto;background:black;color:lime;padding:10px;">
+    </pre>
+
+    <script>
+      const form = document.getElementById("matchForm")
+      const logBox = document.getElementById("logBox")
+      const statusText = document.getElementById("status")
+
+      const eventSource = new EventSource("/logs/stream")
+
+      eventSource.onmessage = function(event) {
+        logBox.textContent += event.data + "\n"
+        logBox.scrollTop = logBox.scrollHeight
+
+        if (event.data.includes("GAME COMPLETED")) {
+          statusText.innerText = "Match Finished"
+        }
+      }
+
+      form.addEventListener("submit", async (e) => {
+        e.preventDefault()
+
+        logBox.textContent = ""
+        statusText.innerText = "Running..."
+
+        const opponent =
+          document.getElementById("opponentSelect").value
+
+        await fetch("/arena/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ opponent })
+        })
+      })
+    </script>
   </body>
 </html>

@@ -15,7 +15,7 @@ dotenv.config()
  */
 const app = express()
 app.use(express.json())
-app.use(express.urlencoded({ extended: true })) 
+app.use(express.urlencoded({ extended: true }))
 app.set("view engine", "ejs")
 app.set("views", path.join(process.cwd(), "src", "views"))
 const agentMap: Record<string, { folder: string; file: string }> = {
@@ -141,7 +141,7 @@ function generateBullets(): Bullet[] {
 }
 
 function resetWorld() {
-  console.log("🔄 Resetting world state for next match...")
+  sendLog("🔄 Resetting world state for next match...")
 
   worldState.started = false
   worldState.matchId = null
@@ -164,16 +164,41 @@ function startGame() {
     worldState.hp[p] = START_HP
   }
 
-  console.log("🎮 Game started")
-  console.log(`   Players: ${worldState.players.join(" vs ")}`)
-  console.log(`   First turn: ${worldState.currentTurn}`)
-  console.log(`   Bullets: ${worldState.bullets.chamber.length} (${worldState.bullets.chamber.filter(b => b === 'real').length} real, ${worldState.bullets.chamber.filter(b => b === 'blank').length} blank)`)
+  sendLog("🎮 Game started")
+  sendLog(`   Players: ${worldState.players.join(" vs ")}`)
+  sendLog(`   First turn: ${worldState.currentTurn}`)
+  sendLog(`   Bullets: ${worldState.bullets.chamber.length} (${worldState.bullets.chamber.filter(b => b === 'real').length} real, ${worldState.bullets.chamber.filter(b => b === 'blank').length} blank)`)
 }
 
 function nextTurn() {
   const [a, b] = worldState.players
   worldState.currentTurn =
     worldState.currentTurn === a ? b : a
+}
+
+function attachLogs(proc: any, label: string) {
+  let buffer = ""
+
+  proc.stdout.on("data", (data: Buffer) => {
+    buffer += data.toString()
+
+    let lines = buffer.split("\n")
+    buffer = lines.pop() || ""   // เก็บบรรทัดที่ยังไม่จบไว้
+
+    for (const line of lines) {
+      const msg = line.trim()
+      if (msg.length > 0) {
+        sendLog(`[${label}] ${msg}`)
+      }
+    }
+  })
+
+  proc.stderr.on("data", (data: Buffer) => {
+    const msg = data.toString().trim()
+    if (msg.length > 0) {
+      sendLog(`[${label} ERROR] ${msg}`)
+    }
+  })
 }
 
 function checkWinner(): string | null {
@@ -199,15 +224,15 @@ async function syncMatchStatus() {
     const player2Paid = m[4]
     const status = Number(m[5]) // 0=CREATED, 1=ACTIVE, 2=RESOLVED (cast กัน bigint)
 
-    console.log(`🔍 Match #${worldState.matchId} status check:`)
-    console.log(`   Player1: ${player1} (paid: ${player1Paid})`)
-    console.log(`   Player2: ${player2} (paid: ${player2Paid})`)
-    console.log(`   Status: ${['CREATED', 'ACTIVE', 'RESOLVED'][status]}`)
+    sendLog(`🔍 Match #${worldState.matchId} status check:`)
+    sendLog(`   Player1: ${player1} (paid: ${player1Paid})`)
+    sendLog(`   Player2: ${player2} (paid: ${player2Paid})`)
+    sendLog(`   Status: ${['CREATED', 'ACTIVE', 'RESOLVED'][status]}`)
 
     // ✅ เริ่มเกมเฉพาะตอน status === ACTIVE เท่านั้น
     if (status === 1 && !worldState.started) {
-      console.log("✅ Match is ACTIVE! Starting game NOW...")
-      
+      sendLog("✅ Match is ACTIVE! Starting game NOW...")
+
       worldState.started = true
       startGame()
 
@@ -215,7 +240,7 @@ async function syncMatchStatus() {
       if (pollingInterval) {
         clearInterval(pollingInterval)
         pollingInterval = null
-        console.log("⏹️ Stopped polling (game started)")
+        sendLog("⏹️ Stopped polling (game started)")
       }
     }
 
@@ -237,10 +262,10 @@ function startMatchPolling() {
     if (worldState.started) {
       clearInterval(pollingInterval!)
       pollingInterval = null
-      console.log("⏹️ Stopped polling - game is running")
+      sendLog("⏹️ Stopped polling - game is running")
       return
     }
-    
+
     if (worldState.matchId === null) return
 
     try {
@@ -250,14 +275,14 @@ function startMatchPolling() {
     }
   }, 2000) // เช็คทุก 2 วินาที
 
-  console.log("▶️ Started match polling (checking every 2s)")
+  sendLog("▶️ Started match polling (checking every 2s)")
 }
 
 function stopMatchPolling() {
   if (pollingInterval) {
     clearInterval(pollingInterval)
     pollingInterval = null
-    console.log("⏹️ Stopped match polling")
+    sendLog("⏹️ Stopped match polling")
   }
 }
 
@@ -282,28 +307,28 @@ app.get("/health", (_, res) => {
 async function findExistingMatch(player1: string, player2: string): Promise<number | null> {
   try {
     const matchCount = await arena.matchCount()
-    console.log(`🔍 Checking ${matchCount} existing matches...`)
-    
+    sendLog(`🔍 Checking ${matchCount} existing matches...`)
+
     // เช็คจากล่างขึ้นบน (match ล่าสุดก่อน)
     for (let i = Number(matchCount) - 1; i >= 0; i--) {
       const m = await arena.getMatch(i)
-      
+
       const matchPlayer1 = m[0].toLowerCase()
       const matchPlayer2 = m[1].toLowerCase()
       const status = m[5] // 0=CREATED, 1=ACTIVE, 2=RESOLVED
-      
+
       // ตรวจสอบว่า player ทั้งสองตรงกัน และ match ยังไม่จบ
-      const playersMatch = 
+      const playersMatch =
         (matchPlayer1 === player1.toLowerCase() && matchPlayer2 === player2.toLowerCase()) ||
         (matchPlayer1 === player2.toLowerCase() && matchPlayer2 === player1.toLowerCase())
-      
-      if (playersMatch && status === 0)  { // ไม่ใช่ RESOLVED
-        console.log(`✅ Found existing match #${i} for these players`)
+
+      if (playersMatch && status === 0) { // ไม่ใช่ RESOLVED
+        sendLog(`✅ Found existing match #${i} for these players`)
         return i
       }
     }
-    
-    console.log("❌ No existing match found")
+
+    sendLog("❌ No existing match found")
     return null
   } catch (err) {
     console.error("Error finding existing match:", err)
@@ -329,7 +354,7 @@ app.post("/join", async (req, res) => {
   // เพิ่ม player ถ้ายังไม่มี
   if (!worldState.players.includes(wallet_address)) {
     worldState.players.push(wallet_address)
-    console.log(
+    sendLog(
       `👤 Player joined: ${wallet_address} (${worldState.players.length}/${MAX_PLAYERS})`
     )
   }
@@ -350,11 +375,11 @@ app.post("/join", async (req, res) => {
 
       if (existingMatchId !== null) {
         worldState.matchId = existingMatchId
-        console.log(`♻️ Using existing match #${existingMatchId}`)
+        sendLog(`♻️ Using existing match #${existingMatchId}`)
         startMatchPolling()
       } else {
         // 📝 สร้าง match ใหม่
-        console.log("📝 Creating new match on-chain...")
+        sendLog("📝 Creating new match on-chain...")
 
         const tx = await arena.createMatch(
           p1,
@@ -380,8 +405,8 @@ app.post("/join", async (req, res) => {
 
         worldState.matchId = Number(event.args.matchId)
 
-        console.log(`🧾 Match created: #${worldState.matchId}`)
-        console.log(
+        sendLog(`🧾 Match created: #${worldState.matchId}`)
+        sendLog(
           `   Bet amount: ${ethers.formatEther(BET_AMOUNT)} ETH`
         )
 
@@ -404,6 +429,7 @@ app.post("/join", async (req, res) => {
     betAmount: BET_AMOUNT.toString(),
   })
 })
+
 /**
  * World state
  */
@@ -423,6 +449,35 @@ app.get("/world/state", async (_, res) => {
       blank: worldState.bullets.chamber.filter(b => b === "blank").length,
     },
     actionHistory: worldState.actionHistory,
+  })
+})
+
+/**
+ * --------------------
+ * Realtime Log Stream (SSE)
+ * --------------------
+ */
+
+let clients: express.Response[] = []
+
+function sendLog(message: string) {
+  console.log(message)
+  for (const client of clients) {
+    client.write(`data: ${message}\n\n`)
+  }
+}
+
+app.get("/logs/stream", (req, res) => {
+  res.setHeader("Content-Type", "text/event-stream")
+  res.setHeader("Cache-Control", "no-cache")
+  res.setHeader("Connection", "keep-alive")
+
+  res.flushHeaders()
+
+  clients.push(res)
+
+  req.on("close", () => {
+    clients = clients.filter(c => c !== res)
   })
 })
 
@@ -457,10 +512,10 @@ app.post("/action", async (req, res) => {
 
     worldState.hp[victim] -= 1
     result = `${victim} lost 1 hp`
-    
-    console.log(`💥 ${bullet.toUpperCase()} bullet! ${result}`)
+
+    sendLog(`💥 ${bullet.toUpperCase()} bullet! ${result}`)
   } else {
-    console.log(`🔘 ${bullet.toUpperCase()} bullet! Click...`)
+    sendLog(`🔘 ${bullet.toUpperCase()} bullet! Click...`)
   }
 
   worldState.actionHistory.push({
@@ -476,41 +531,46 @@ app.post("/action", async (req, res) => {
   if (worldState.bullets.chamber.length === 0) {
     worldState.round += 1
     worldState.bullets.chamber = generateBullets()
-    console.log(`🔄 Round ${worldState.round} - Reloaded bullets`)
+
+    const realCount = worldState.bullets.chamber.filter(b => b === "real").length
+    const blankCount = worldState.bullets.chamber.filter(b => b === "blank").length
+
+    sendLog(`🔄 Round ${worldState.round} - Reloaded bullets`)
+    sendLog(`   Bullets: ${worldState.bullets.chamber.length} (${realCount} real, ${blankCount} blank)`)
   }
 
   const winner = checkWinner()
 
   if (winner && worldState.matchId !== null) {
     try {
-      console.log(`🏆 Winner: ${winner}! Resolving match on-chain...`)
+      sendLog(`🏆 Winner: ${winner}! Resolving match on-chain...`)
       const tx = await arena.resolveMatch(
         worldState.matchId,
         winner
       )
       await tx.wait()
 
-      console.log("✅ Match resolved on-chain")
+      sendLog("✅ Match resolved on-chain")
     } catch (err) {
       console.error("❌ resolveMatch failed:", err)
     }
 
     // แสดงสถิติสรุป
-    console.log("\n" + "=".repeat(60))
-    console.log("🏁 GAME COMPLETED")
-    console.log("=".repeat(60))
-    console.log(`🏆 Winner: ${winner}`)
-    console.log(`📊 Game Stats:`)
-    console.log(`   Total rounds: ${worldState.round}`)
-    console.log(`   Total actions: ${worldState.actionHistory.length}`)
-    console.log(`   Final HP: ${worldState.hp[worldState.players[0]]} vs ${worldState.hp[worldState.players[1]]}`)
-    console.log("=".repeat(60))
-    
+    sendLog("\n" + "=".repeat(60))
+    sendLog("🏁 GAME COMPLETED")
+    sendLog("=".repeat(60))
+    sendLog(`🏆 Winner: ${winner}`)
+    sendLog(`📊 Game Stats:`)
+    sendLog(`   Total rounds: ${worldState.round}`)
+    sendLog(`   Total actions: ${worldState.actionHistory.length}`)
+    sendLog(`   Final HP: ${worldState.hp[worldState.players[0]]} vs ${worldState.hp[worldState.players[1]]}`)
+    sendLog("=".repeat(60))
+
     stopMatchPolling()
-    
+
     resetWorld()
-    
-    
+
+
     return res.json({
       ok: true,
       bullet,
@@ -529,11 +589,11 @@ app.post("/action", async (req, res) => {
     if (!keepTurn) {
       nextTurn()
     }
-    
+
     if (keepTurn) {
-      console.log(`🎯 ${wallet_address} gets another turn!`)
+      sendLog(`🎯 ${wallet_address} gets another turn!`)
     } else {
-      console.log(`🔄 Next turn: ${worldState.currentTurn}`)
+      sendLog(`🔄 Next turn: ${worldState.currentTurn}`)
     }
   }
 
@@ -570,10 +630,10 @@ app.get("/match/onchain", async (_, res) => {
  * Force sync (for debugging)
  */
 app.post("/admin/sync", async (_, res) => {
-  console.log("🔧 Manual sync triggered")
+  sendLog("🔧 Manual sync triggered")
   await syncMatchStatus()
-  res.json({ 
-    ok: true, 
+  res.json({
+    ok: true,
     started: worldState.started,
     matchId: worldState.matchId
   })
@@ -591,6 +651,7 @@ app.post("/arena/run", async (req, res) => {
 
     const balancedPath = path.join(
       process.cwd(),
+      "src",
       "agents",
       "agent_Balanced",
       "agent_balanced.py"
@@ -600,6 +661,7 @@ app.post("/arena/run", async (req, res) => {
 
     const opponentPath = path.join(
       process.cwd(),
+      "src",
       "agents",
       opponentConfig.folder,
       opponentConfig.file
@@ -609,24 +671,32 @@ app.post("/arena/run", async (req, res) => {
       return res.status(500).json({ error: "Agent file missing" })
     }
 
-    // ⭐ รอให้ process จบก่อน
     await new Promise<void>((resolve) => {
-      const p1 = spawn("python3", [balancedPath])
-      const p2 = spawn("python3", [opponentPath])
+      const p1 = spawn("python", ["-u", balancedPath])
+      const p2 = spawn("python", ["-u", opponentPath])
 
-      p2.on("close", () => {
-        resolve()
-      })
+      attachLogs(p1, "Balanced")
+      attachLogs(p2, opponent)
+
+      // ===== รอให้ปิดครบทั้งสองตัว =====
+      let closed = 0
+      const onClose = () => {
+        closed++
+        if (closed === 2) {
+          sendLog("🤖 Both agents finished execution")
+          resolve()
+        }
+      }
+
+      p1.on("close", onClose)
+      p2.on("close", onClose)
     })
 
     // หลัง match จบ
     const winner =
       worldState.players.find(p => worldState.hp[p] > 0) || "Unknown"
 
-    res.render("result", {
-      opponent,
-      winner
-    })
+    res.json({ ok: true })
 
   } catch (err) {
     console.error(err)
@@ -641,9 +711,9 @@ app.post("/arena/run", async (req, res) => {
  */
 const PORT = process.env.PORT || 3000
 app.listen(PORT, () => {
-  console.log(`🏟️ Arena server running on port ${PORT}`)
-  console.log(`   RPC: ${process.env.RPC_URL}`)
-  console.log(`   Arena: ${process.env.ARENA_ESCROW_ADDRESS}`)
+  sendLog(`🏟️ Arena server running on port ${PORT}`)
+  sendLog(`   RPC: ${process.env.RPC_URL}`)
+  sendLog(`   Arena: ${process.env.ARENA_ESCROW_ADDRESS}`)
 })
 
 

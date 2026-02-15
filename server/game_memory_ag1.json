@@ -1,0 +1,72 @@
+[
+  {
+    "won": true,
+    "final_my_hp": 1,
+    "final_opp_hp": 0,
+    "total_turns": 18,
+    "duration_seconds": 70.77,
+    "opp_aggression": 0.543,
+    "winning_pattern": "offensive",
+    "avg_confidence": 0.926
+  },
+  {
+    "won": true,
+    "final_my_hp": 3,
+    "final_opp_hp": 0,
+    "total_turns": 15,
+    "duration_seconds": 95.95,
+    "opp_aggression": 0.933,
+    "winning_pattern": "offensive",
+    "avg_confidence": 0.897
+  },
+  {
+    "won": false,
+    "final_my_hp": 0,
+    "final_opp_hp": 4,
+    "total_turns": 20,
+    "duration_seconds": 219.11,
+    "opp_aggression": 0.55,
+    "winning_pattern": "loss",
+    "avg_confidence": 0.925
+  },
+  {
+    "won": true,
+    "final_my_hp": 1,
+    "final_opp_hp": 0,
+    "total_turns": 19,
+    "duration_seconds": 187.09,
+    "opp_aggression": 0.737,
+    "winning_pattern": "offensive",
+    "avg_confidence": 0.918
+  },
+  {
+    "won": false,
+    "final_my_hp": 0,
+    "final_opp_hp": 5,
+    "total_turns": 18,
+    "duration_seconds": 233.77,
+    "opp_aggression": 0.389,
+    "winning_pattern": "loss",
+    "avg_confidence": 0.908
+  },
+  {
+    "won": true,
+    "final_my_hp": 3,
+    "final_opp_hp": 0,
+    "total_turns": 13,
+    "duration_seconds": 83.85,
+    "opp_aggression": 0.923,
+    "winning_pattern": "victory",
+    "avg_confidence": 0.915
+  },
+  {
+    "won": true,
+    "final_my_hp": 1,
+    "final_opp_hp": 0,
+    "total_turns": 23,
+    "duration_seconds": 230.61,
+    "opp_aggression": 0.609,
+    "winning_pattern": "offensive",
+    "avg_confidence": 0.93
+  }
+]
