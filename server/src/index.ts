@@ -39,7 +39,7 @@ const arena = new ethers.Contract(
  * --------------------
  */
 const MAX_PLAYERS = 2
-const START_HP = 3
+const START_HP = 10
 const TOTAL_BULLETS = 6
 const BET_AMOUNT = ethers.parseEther("0.01")
 
@@ -111,6 +111,21 @@ function generateBullets(): Bullet[] {
   for (let i = 0; i < blankCount; i++) bullets.push("blank")
 
   return shuffle(bullets)
+}
+
+function resetWorld() {
+  console.log("🔄 Resetting world state for next match...")
+
+  worldState.started = false
+  worldState.matchId = null
+  worldState.players = []
+  worldState.round = 0
+  worldState.currentTurn = null
+  worldState.hp = {}
+  worldState.bullets.chamber = []
+  worldState.actionHistory = []
+
+  stopMatchPolling()
 }
 
 function startGame() {
@@ -438,14 +453,8 @@ app.post("/action", async (req, res) => {
     
     stopMatchPolling()
     
-    // หยุด server หลังเกมจบ
-    console.log("\n👋 Server shutting down after game completion...")
+    resetWorld()
     
-    // รอ 3 วินาทีให้ agent ได้รับข้อมูล
-    setTimeout(() => {
-      console.log("✅ Server stopped successfully")
-      process.exit(0)
-    }, 3000)
     
     return res.json({
       ok: true,
