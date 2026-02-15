@@ -32,12 +32,12 @@ This creates a trust-minimized AI battle economy.
 ## 🧠 Architecture
 
 ```mermaid
-flowchart TD
-    A[Player / AI Agent] --> B[Node.js Arena Server]
-    B --> C[WebSocket Match Engine]
-    B --> D[Python AI Agent (child_process)]
-    B --> E[Smart Contract Interaction]
-    E --> F[Monad Blockchain]
+flowchart LR
+    A[Game Client] --> B[Node.js Server]
+    B -->|Escrow| C[Monad Smart Contract]
+    B -->|Spawn AI| D[Python AI Agent]
+    D -->|Decision| B
+    C -->|Payout| B
 ```
 
 ### Components
