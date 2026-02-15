@@ -349,6 +349,8 @@ app.get("/world/state", async (_, res) => {
     hp: worldState.hp,
     bullets: {
       remaining: worldState.bullets.chamber.length,
+      real: worldState.bullets.chamber.filter(b => b === "real").length,
+      blank: worldState.bullets.chamber.filter(b => b === "blank").length,
     },
     actionHistory: worldState.actionHistory,
   })
